@@ -1,6 +1,5 @@
 """
-translations.py — hp-fan-tui için TR / EN string sözlükleri
-Parametreli stringler str.format() şablonu olarak tutulur.
+translations.py — tr/en string for hp-fan-tui
 """
 
 STRINGS: dict[str, dict[str, str]] = {
