@@ -1,0 +1,17 @@
+[Unit]
+Description=HP Fan Curve Daemon (Victus 16)
+After=multi-user.target
+# Requires hp_wmi kernel module to be loaded
+After=systemd-modules-load.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/hp-fan-curve
+Restart=on-failure
+RestartSec=5
+# stdout goes to journald: journalctl -u hp-fan-curve -f
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
