@@ -1,10 +1,10 @@
-# HP Fan Curve
+# Yet Another Fan Control (YAFC)
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux-lightgrey)]()
 
-Systemd daemon and Textual TUI for automatic fan control on the HP Victus 16 (Ryzen 7 7840HS + RTX 4050).
+Yet Another Fan Control (YAFC) is a systemd daemon and Textual TUI for automatic fan control on the HP Victus 16 (Ryzen 7 7840HS + RTX 4050).
 
 ---
 
@@ -41,7 +41,7 @@ Before using on your own machine:
 - Monitors CPU (`k10temp`), iGPU (`amdgpu`), and dGPU (`nvidia-smi`) temperatures simultaneously
 - Determines fan level based on the dominant (hottest) sensor
 - Hysteresis: step-down is delayed by 5°C to prevent rapid fan oscillation
-- **MAX / AUTO / MANUAL** mode support
+- **MAX / AUTO / GAMING / MANUAL** mode support
 - Configurable via `fan-curve.conf`; daemon reloads on SIGHUP — no restart required
 - Textual TUI with live sensor monitoring, mode switching, fan curve editing, and log viewer
 - English and Turkish UI (`--lang en|tr`)
@@ -52,20 +52,20 @@ Before using on your own machine:
 ## TUI Preview
 
 ```
-┌─ HP Fan Control ─────────────────────────────────────────────┐
-│  [1:MAX]  [2:AUTO ●]  [3:MANUAL]   ● Service: active         │
+┌─ YAFC ───────────────────────────────────────────────────────┐
+│  [1:MAX] [2:AUTO ●] [3:MANUAL] [4:GAMING]  ● Service: active │
 │                               [Start] [Stop] [Restart]       │
 ├───────────────────────┬──────────────────────────────────────┤
 │  TEMPERATURES         │  FAN CURVE                           │
 │  CPU:   74.1°C        │  ○  90°C → 5800 RPM                  │
-│  iGPU:  61.0°C        │  ○  84°C → 4930 RPM                  │
-│  dGPU:  66.0°C        │  ●  70°C → 3500 RPM  ← ACTIVE        │
-│                       │  ○  55°C → 2320 RPM                  │
+│  iGPU:  61.0°C        │  ○  84°C → 5000 RPM                  │
+│  dGPU:  66.0°C        │  ●  65°C → 3000 RPM  ← ACTIVE        │
+│                       │  ○  58°C → 2500 RPM                  │
 │  FANS                 │  ...                                 │
 │  Fan 1: 3500 RPM      │                                      │
 │  Fan 2: 3500 RPM      │                                      │
 ├───────────────────────┴──────────────────────────────────────┤
-│  LOG  (journalctl -u hp-fan-curve)                           │
+│  LOG  (journalctl -u yafc)                                   │
 │  16:04:17 [AUTO][CPU] CPU: 74.1°C | iGPU: 61.0°C | ...       │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -93,7 +93,7 @@ Before using on your own machine:
 sudo pacman -S python-textual
 ```
 
-The daemon (`hp-fan-curve.py`) uses stdlib only — no additional dependencies required.
+The daemon (`yafc-daemon.py`) uses stdlib only — no additional dependencies required.
 
 ### 2. Run the installer
 
@@ -102,17 +102,17 @@ sudo bash install.sh
 ```
 
 The installer will:
-- Copy the daemon to `/usr/local/bin/hp-fan-curve`
-- Copy TUI files to `/opt/hp-fan-curve/`
-- Create the `hp-fan-tui` command at `/usr/local/bin/hp-fan-tui`
-- Install config to `/etc/hp-fan-curve/fan-curve.conf`
+- Copy the daemon to `/usr/local/bin/yafc-daemon`
+- Copy TUI files to `/opt/yafc/`
+- Create the `yafc-tui` command at `/usr/local/bin/yafc-tui`
+- Install config to `/etc/yafc/fan-curve.conf`
 - Enable and start the systemd service
 - Install a `.desktop` entry to `/usr/share/applications/` if KDE/Plasma is detected
 
 ### 3. Launch the TUI
 
 ```bash
-sudo hp-fan-tui
+sudo yafc-tui
 ```
 
 > `sudo` is required — the TUI uses `systemctl` for service start/stop/restart.
@@ -120,8 +120,8 @@ sudo hp-fan-tui
 To force a specific UI language:
 
 ```bash
-sudo hp-fan-tui --lang en
-sudo hp-fan-tui --lang tr
+sudo yafc-tui --lang en
+sudo yafc-tui --lang tr
 ```
 
 If `--lang` is not set, the language is determined by the `$LANG` environment variable (defaults to Turkish when `LANG` starts with `tr`, English otherwise).
@@ -130,7 +130,7 @@ If `--lang` is not set, the language is determined by the `$LANG` environment va
 
 ## Configuration
 
-Config file: `/etc/hp-fan-curve/fan-curve.conf`
+Config file: `/etc/yafc/fan-curve.conf`
 
 ```json
 {
@@ -144,33 +144,36 @@ Config file: `/etc/hp-fan-curve/fan-curve.conf`
 
 | Field | Values | Description |
 |-------|--------|-------------|
-| `mode` | `"max"` \| `"auto"` \| `"manual"` | Active fan control mode |
-| `curve` | array of `{temp, rpm}` objects | Fan curve levels, sorted descending by temperature |
+| `mode` | `"max"` \| `"auto"` \| `"gaming"` \| `"manual"` | Active fan control mode |
+| `curve` | array of `{temp, rpm}` objects | Fan curve levels used in **MANUAL** mode, sorted descending by temperature |
 
 The daemon reloads the config on SIGHUP — no restart required:
 
 ```bash
-sudo systemctl kill -s HUP hp-fan-curve
+sudo systemctl kill -s HUP yafc
 ```
 
 ---
 
 ## Fan Curve
 
-Default curve:
+Default quiet curve (AUTO mode):
 
 | Level | Threshold (°C) | Fan RPM |
 |-------|----------------|---------|
-| 8 | ≥ 90 | 5800 |
-| 7 | ≥ 84 | 4930 |
-| 6 | ≥ 78 | 4060 |
-| 5 | ≥ 70 | 3500 |
-| 4 | ≥ 55 | 2320 |
-| 3 | ≥ 45 | 1740 |
+| 10 | ≥ 90 | 5800 |
+| 9 | ≥ 84 | 5000 |
+| 8 | ≥ 78 | 4200 |
+| 7 | ≥ 72 | 3600 |
+| 6 | ≥ 65 | 3000 |
+| 5 | ≥ 58 | 2500 |
+| 4 | ≥ 50 | 2000 |
+| 3 | ≥ 42 | 1650 |
 | 2 | ≥ 35 | 1450 |
 | 1 | ≥  0 | 1450 |
 
 Thresholds and RPM values can be edited via `fan-curve.conf` or through the TUI in MANUAL mode.
+These user-defined values are applied only in MANUAL mode.
 
 ---
 
@@ -179,8 +182,9 @@ Thresholds and RPM values can be edited via `fan-curve.conf` or through the TUI 
 | Mode | Behavior |
 |------|----------|
 | **MAX** | Fixed maximum RPM (5800) regardless of temperature |
-| **AUTO** | Follows the `fan-curve.conf` curve automatically |
-| **MANUAL** | Same as AUTO; fan curve is editable via the TUI |
+| **AUTO** | Uses the built-in default curve |
+| **GAMING** | Uses the built-in aggressive gaming curve |
+| **MANUAL** | Uses the user-defined curve from `fan-curve.conf` (editable via TUI) |
 
 ---
 
@@ -191,6 +195,7 @@ Thresholds and RPM values can be edited via `fan-curve.conf` or through the TUI 
 | `1` | Switch to MAX mode |
 | `2` | Switch to AUTO mode |
 | `3` | Switch to MANUAL mode |
+| `4` | Switch to GAMING mode |
 | `r` | Refresh sensors and config |
 | `c` | Copy current status to clipboard |
 | `n` | Add a new fan curve level (MANUAL mode only) |
@@ -204,16 +209,16 @@ Thresholds and RPM values can be edited via `fan-curve.conf` or through the TUI 
 
 ```bash
 # Status
-systemctl status hp-fan-curve
+systemctl status yafc
 
 # Live log
-journalctl -u hp-fan-curve -f
+journalctl -u yafc -f
 
 # Restart
-sudo systemctl restart hp-fan-curve
+sudo systemctl restart yafc
 
 # Reload config without restart
-sudo systemctl kill -s HUP hp-fan-curve
+sudo systemctl kill -s HUP yafc
 ```
 
 ---
@@ -237,7 +242,7 @@ Reports and testing from other HP Victus / hp-wmi users are welcome.
 
 ## Contributing
 
-Issues and pull requests are welcome at [github.com/isotjs/my-fan-control](https://github.com/isotjs/my-fan-control).
+Issues and pull requests are welcome at [github.com/isotjs/yet-another-fan-control](https://github.com/isotjs/yet-another-fan-control).
 
 If you test this on a different HP model, please report your hwmon paths, kernel version, and whether it works — this helps broaden compatibility.
 

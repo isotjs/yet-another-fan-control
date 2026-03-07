@@ -1,5 +1,5 @@
 """
-translations.py — tr/en string for hp-fan-tui
+translations.py — tr/en strings for yafc-tui
 """
 
 STRINGS: dict[str, dict[str, str]] = {
@@ -10,6 +10,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "copy":                "Kopyala",
         "mode_max":            "MAX mod",
         "mode_auto":           "AUTO mod",
+        "mode_gaming":         "GAMING mod",
         "mode_manual":         "MANUAL mod",
         "add":                 "Ekle",
         "delete":              "Sil",
@@ -17,6 +18,7 @@ STRINGS: dict[str, dict[str, str]] = {
         # ── Üst bar butonları ─────────────────────────────────────────────
         "btn_max":             "1: MAX",
         "btn_auto":            "2: AUTO",
+        "btn_gaming":          "4: GAMING",
         "btn_manual":          "3: MANUAL",
         "svc_start":           "Başlat",
         "svc_stop":            "Durdur",
@@ -25,7 +27,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "panel_temps":         "SICAKLIKLAR",
         "panel_fans":          "FANLAR",
         "panel_curve":         "FAN EĞRİSİ  (MANUAL modda düzenlemek için Enter/tıkla)",
-        "panel_log":           "LOG  (journalctl -u hp-fan-curve)",
+        "panel_log":           "LOG  (journalctl -u yafc)",
         # ── Tablo sütunları ───────────────────────────────────────────────
         "col_threshold":       "Eşik (°C)",
         "col_rpm":             "Fan RPM",
@@ -65,6 +67,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "copy":                "Copy",
         "mode_max":            "MAX mode",
         "mode_auto":           "AUTO mode",
+        "mode_gaming":         "GAMING mode",
         "mode_manual":         "MANUAL mode",
         "add":                 "Add",
         "delete":              "Delete",
@@ -72,6 +75,7 @@ STRINGS: dict[str, dict[str, str]] = {
         # ── Top bar buttons ───────────────────────────────────────────────
         "btn_max":             "1: MAX",
         "btn_auto":            "2: AUTO",
+        "btn_gaming":          "4: GAMING",
         "btn_manual":          "3: MANUAL",
         "svc_start":           "Start",
         "svc_stop":            "Stop",
@@ -80,7 +84,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "panel_temps":         "TEMPERATURES",
         "panel_fans":          "FANS",
         "panel_curve":         "FAN CURVE  (Enter/click to edit in MANUAL mode)",
-        "panel_log":           "LOG  (journalctl -u hp-fan-curve)",
+        "panel_log":           "LOG  (journalctl -u yafc)",
         # ── Table columns ─────────────────────────────────────────────────
         "col_threshold":       "Threshold (°C)",
         "col_rpm":             "Fan RPM",

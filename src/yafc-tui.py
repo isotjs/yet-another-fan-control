@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-hp-fan-tui — Textual TUI for HP Fan Curve Daemon
+yafc-tui — Textual TUI for Yet Another Fan Control daemon
 HP Victus 16 (Ryzen 7 7840HS + RTX 4050)
 """
 
@@ -53,19 +53,35 @@ def _t(key: str, **kwargs: str | int | float) -> str:
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
-CONF_PATH = Path("/etc/hp-fan-curve/fan-curve.conf")
+CONF_PATH = Path("/etc/yafc/fan-curve.conf")
 CONF_FALLBACK = Path(__file__).parent.parent / "config" / "fan-curve.conf"
-SERVICE_NAME = "hp-fan-curve"
+SERVICE_NAME = "yafc"
 POLL_SECONDS = 3
 
 DEFAULT_CURVE = [
     {"temp": 90, "rpm": 5800},
-    {"temp": 84, "rpm": 4930},
-    {"temp": 78, "rpm": 4060},
-    {"temp": 70, "rpm": 3500},
-    {"temp": 55, "rpm": 2320},
-    {"temp": 45, "rpm": 1740},
+    {"temp": 84, "rpm": 5000},
+    {"temp": 78, "rpm": 4200},
+    {"temp": 72, "rpm": 3600},
+    {"temp": 65, "rpm": 3000},
+    {"temp": 58, "rpm": 2500},
+    {"temp": 50, "rpm": 2000},
+    {"temp": 42, "rpm": 1650},
     {"temp": 35, "rpm": 1450},
+    {"temp":  0, "rpm": 1450},
+]
+
+GAMING_CURVE = [
+    {"temp": 90, "rpm": 5800},
+    {"temp": 85, "rpm": 5600},
+    {"temp": 80, "rpm": 5200},
+    {"temp": 75, "rpm": 4700},
+    {"temp": 70, "rpm": 4200},
+    {"temp": 65, "rpm": 3700},
+    {"temp": 60, "rpm": 3200},
+    {"temp": 55, "rpm": 2800},
+    {"temp": 45, "rpm": 2100},
+    {"temp": 35, "rpm": 1600},
     {"temp":  0, "rpm": 1450},
 ]
 
@@ -321,8 +337,8 @@ class ConfirmModal(ModalScreen):
 
 class FanTUI(App):
 
-    TITLE = "HP Fan Control"
-    SUB_TITLE = "Victus 16 — Ryzen 7 7840HS + RTX 4050"
+    TITLE = "YAFC"
+    SUB_TITLE = "Yet Another Fan Control — Victus 16 (Ryzen 7 7840HS + RTX 4050)"
 
     BINDINGS = [
         Binding("q", "quit", _t("quit")),
@@ -331,6 +347,7 @@ class FanTUI(App):
         Binding("1", "set_mode_max", _t("mode_max")),
         Binding("2", "set_mode_auto", _t("mode_auto")),
         Binding("3", "set_mode_manual", _t("mode_manual")),
+        Binding("4", "set_mode_gaming", _t("mode_gaming")),
         Binding("n", "add_level", _t("add")),
         Binding("d", "delete_level", _t("delete")),
     ]
@@ -460,6 +477,7 @@ class FanTUI(App):
             yield Button(_t("btn_max"), id="btn-max", classes="mode-btn")
             yield Button(_t("btn_auto"), id="btn-auto", classes="mode-btn")
             yield Button(_t("btn_manual"), id="btn-manual", classes="mode-btn")
+            yield Button(_t("btn_gaming"), id="btn-gaming", classes="mode-btn")
             yield Static("", id="service-status")
             with Horizontal(id="service-btns"):
                 yield Button(_t("svc_start"), id="btn-start", classes="svc-btn", variant="success")
@@ -516,10 +534,31 @@ class FanTUI(App):
         table.add_columns("  ", _t("col_threshold"), _t("col_rpm"), _t("col_status"))
         self._refresh_curve_rows()
 
+    def _get_manual_curve(self) -> list[dict]:
+        curve = self._config.get("curve")
+        if isinstance(curve, list) and curve:
+            return curve
+        manual_curve = [dict(entry) for entry in DEFAULT_CURVE]
+        self._config["curve"] = manual_curve
+        return manual_curve
+
+    def _get_effective_curve(self) -> list[dict]:
+        mode = self._config.get("mode", "auto")
+        if mode == "manual":
+            return self._get_manual_curve()
+        if mode == "gaming":
+            return GAMING_CURVE
+        return DEFAULT_CURVE
+
+    def _recalculate_active_level(self) -> None:
+        temp = max(self.cpu_temp, self.igpu_temp, self.dgpu_temp)
+        curve = self._get_effective_curve()
+        self.active_level = get_active_level(temp, curve)
+
     def _refresh_curve_rows(self) -> None:
         table = self.query_one("#curve-table", DataTable)
         table.clear()
-        curve = self._config.get("curve", DEFAULT_CURVE)
+        curve = self._get_effective_curve()
         for i, entry in enumerate(curve):
             active = (i == self.active_level)
             indicator = "●" if active else "○"
@@ -546,9 +585,7 @@ class FanTUI(App):
         self.service_status = get_service_status()
 
         # Active level
-        temp = max(self.cpu_temp, self.igpu_temp, self.dgpu_temp)
-        curve = self._config.get("curve", DEFAULT_CURVE)
-        self.active_level = get_active_level(temp, curve)
+        self._recalculate_active_level()
 
         # Update UI
         self._update_sensor_labels()
@@ -590,7 +627,12 @@ class FanTUI(App):
     def _apply_mode_buttons(self) -> None:
         mode = self._config.get("mode", "auto")
         self.fan_mode = mode
-        for btn_id, btn_mode in [("btn-max", "max"), ("btn-auto", "auto"), ("btn-manual", "manual")]:
+        for btn_id, btn_mode in [
+            ("btn-max", "max"),
+            ("btn-auto", "auto"),
+            ("btn-manual", "manual"),
+            ("btn-gaming", "gaming"),
+        ]:
             btn = self.query_one(f"#{btn_id}", Button)
             if btn_mode == mode:
                 btn.add_class("active")
@@ -602,6 +644,8 @@ class FanTUI(App):
         save_config(self._config)
         reload_daemon()
         self._apply_mode_buttons()
+        self._recalculate_active_level()
+        self._refresh_curve_rows()
         log_widget = self.query_one("#log-output", Log)
         log_widget.write_line(_t("mode_changed", mode=mode.upper()))
 
@@ -613,6 +657,9 @@ class FanTUI(App):
 
     def action_set_mode_manual(self) -> None:
         self._set_mode("manual")
+
+    def action_set_mode_gaming(self) -> None:
+        self._set_mode("gaming")
 
     # ── Button events ─────────────────────────────────────────────────────────
 
@@ -627,6 +674,10 @@ class FanTUI(App):
     @on(Button.Pressed, "#btn-manual")
     def on_manual(self) -> None:
         self._set_mode("manual")
+
+    @on(Button.Pressed, "#btn-gaming")
+    def on_gaming(self) -> None:
+        self._set_mode("gaming")
 
     @on(Button.Pressed, "#btn-start")
     def on_start(self) -> None:
@@ -652,7 +703,7 @@ class FanTUI(App):
             log_widget.write_line(_t("edit_only_manual"))
             return
         index = int(event.row_key.value or 0)
-        curve = self._config.get("curve", DEFAULT_CURVE)
+        curve = self._get_manual_curve()
         entry = curve[index]
         self.app.push_screen(
             EditCurveModal(index, entry["temp"], entry["rpm"]),
@@ -662,7 +713,7 @@ class FanTUI(App):
     def _on_edit_result(self, index: int, result) -> None:
         if result is None:
             return
-        curve = self._config.get("curve", DEFAULT_CURVE)
+        curve = self._get_manual_curve()
         curve[index] = result
         # Sort table by descending temperature
         curve.sort(key=lambda e: e["temp"], reverse=True)
@@ -684,7 +735,7 @@ class FanTUI(App):
                 _t("add_only_manual")
             )
             return
-        curve = self._config.get("curve", DEFAULT_CURVE)
+        self._get_manual_curve()
         # Empty modal — index=-1 means "new entry"
         self.app.push_screen(
             EditCurveModal(-1, 0, 1450),
@@ -694,7 +745,7 @@ class FanTUI(App):
     def _on_add_result(self, result) -> None:
         if result is None:
             return
-        curve = self._config.get("curve", DEFAULT_CURVE)
+        curve = self._get_manual_curve()
         curve.append(result)
         curve.sort(key=lambda e: e["temp"], reverse=True)
         self._config["curve"] = curve
@@ -712,7 +763,7 @@ class FanTUI(App):
                 _t("del_only_manual")
             )
             return
-        curve = self._config.get("curve", DEFAULT_CURVE)
+        curve = self._get_manual_curve()
         if len(curve) <= 2:
             self.query_one("#log-output", Log).write_line(
                 _t("min_levels")
@@ -735,7 +786,7 @@ class FanTUI(App):
     def _on_delete_result(self, confirmed: bool | None, index: int) -> None:
         if not confirmed:
             return
-        curve = self._config.get("curve", DEFAULT_CURVE)
+        curve = self._get_manual_curve()
         removed = curve.pop(index)
         self._config["curve"] = curve
         save_config(self._config)
@@ -757,11 +808,11 @@ class FanTUI(App):
         """Copies current status as plain text to clipboard."""
         from datetime import datetime
         mode = self._config.get("mode", "auto").upper()
-        curve = self._config.get("curve", DEFAULT_CURVE)
+        curve = self._get_effective_curve()
         active = self.active_level
 
         lines = [
-            f"HP Fan Control — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"Yet Another Fan Control (YAFC) — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             _t("copy_mode_svc", mode=mode, status=self.service_status),
             "",
             _t("panel_temps"),

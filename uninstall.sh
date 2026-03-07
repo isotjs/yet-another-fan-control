@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# uninstall.sh — HP Fan Curve uninstaller
+# uninstall.sh — YAFC uninstaller
 # Removes daemon, systemd service, and optionally the config
 
 set -e
@@ -25,20 +25,27 @@ die()     { error "$*"; exit 1; }
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
-DST_DAEMON="/usr/local/bin/hp-fan-curve"
-DST_TUI_BIN="/usr/local/bin/hp-fan-tui"
-DST_SERVICE="/etc/systemd/system/hp-fan-curve.service"
-DST_CONF_DIR="/etc/hp-fan-curve"
+DST_DAEMON="/usr/local/bin/yafc-daemon"
+DST_TUI_BIN="/usr/local/bin/yafc-tui"
+DST_SERVICE="/etc/systemd/system/yafc.service"
+DST_CONF_DIR="/etc/yafc"
 DST_CONF="${DST_CONF_DIR}/fan-curve.conf"
-OPT_DIR="/opt/hp-fan-curve"
-DST_DESKTOP="/usr/share/applications/hp-fan-curve.desktop"
+OPT_DIR="/opt/yafc"
+DST_DESKTOP="/usr/share/applications/yafc.desktop"
 
-SERVICE_NAME="hp-fan-curve"
+SERVICE_NAME="yafc"
+LEGACY_SERVICE_NAME="hp-fan-curve"
+LEGACY_DAEMON="/usr/local/bin/hp-fan-curve"
+LEGACY_TUI_BIN="/usr/local/bin/hp-fan-tui"
+LEGACY_SERVICE="/etc/systemd/system/hp-fan-curve.service"
+LEGACY_OPT_DIR="/opt/hp-fan-curve"
+LEGACY_DESKTOP="/usr/share/applications/hp-fan-curve.desktop"
+LEGACY_CONF="/etc/hp-fan-curve/fan-curve.conf"
 
 # ── Preflight ─────────────────────────────────────────────────────────────────
 
 echo ""
-echo "${BLD}HP Fan Curve — Uninstaller${RST}"
+echo "${BLD}Yet Another Fan Control (YAFC) — Uninstaller${RST}"
 echo "──────────────────────────────────────"
 echo ""
 
@@ -60,6 +67,18 @@ if systemctl is-enabled --quiet "${SERVICE_NAME}" 2>/dev/null; then
     ok "Service disabled"
 else
     info "Service is not enabled, skipping disable"
+fi
+
+if systemctl is-active --quiet "${LEGACY_SERVICE_NAME}" 2>/dev/null; then
+    info "Stopping legacy service ${LEGACY_SERVICE_NAME}..."
+    systemctl stop "${LEGACY_SERVICE_NAME}"
+    ok "Legacy service stopped"
+fi
+
+if systemctl is-enabled --quiet "${LEGACY_SERVICE_NAME}" 2>/dev/null; then
+    info "Disabling legacy service ${LEGACY_SERVICE_NAME}..."
+    systemctl disable "${LEGACY_SERVICE_NAME}"
+    ok "Legacy service disabled"
 fi
 
 echo ""
@@ -103,6 +122,33 @@ else
     warn "Service unit not found at ${DST_SERVICE}, skipping"
 fi
 
+if [[ -f "${LEGACY_DAEMON}" ]]; then
+    rm -f "${LEGACY_DAEMON}"
+    ok "Removed legacy ${LEGACY_DAEMON}"
+fi
+
+if [[ -f "${LEGACY_TUI_BIN}" ]]; then
+    rm -f "${LEGACY_TUI_BIN}"
+    ok "Removed legacy ${LEGACY_TUI_BIN}"
+fi
+
+if [[ -d "${LEGACY_OPT_DIR}" ]]; then
+    rm -rf "${LEGACY_OPT_DIR}"
+    ok "Removed legacy ${LEGACY_OPT_DIR}"
+fi
+
+if [[ -f "${LEGACY_DESKTOP}" ]]; then
+    rm -f "${LEGACY_DESKTOP}"
+    command -v update-desktop-database &>/dev/null \
+        && update-desktop-database /usr/share/applications
+    ok "Removed legacy ${LEGACY_DESKTOP}"
+fi
+
+if [[ -f "${LEGACY_SERVICE}" ]]; then
+    rm -f "${LEGACY_SERVICE}"
+    ok "Removed legacy ${LEGACY_SERVICE}"
+fi
+
 # ── Config ────────────────────────────────────────────────────────────────────
 
 if [[ -f "${DST_CONF}" ]]; then
@@ -121,6 +167,10 @@ if [[ -f "${DST_CONF}" ]]; then
     fi
 else
     info "Config file not found at ${DST_CONF}, skipping"
+fi
+
+if [[ -f "${LEGACY_CONF}" ]]; then
+    info "Legacy config kept at ${LEGACY_CONF}"
 fi
 
 echo ""

@@ -1,15 +1,15 @@
 [Unit]
-Description=HP Fan Curve Daemon (Victus 16)
+Description=YAFC Daemon (Victus 16)
 After=multi-user.target
 # Requires hp_wmi kernel module to be loaded
 After=systemd-modules-load.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /usr/local/bin/hp-fan-curve
+ExecStart=/usr/bin/python3 /usr/local/bin/yafc-daemon
 Restart=on-failure
 RestartSec=5
-# stdout goes to journald: journalctl -u hp-fan-curve -f
+# stdout goes to journald: journalctl -u yafc -f
 StandardOutput=journal
 StandardError=journal
 

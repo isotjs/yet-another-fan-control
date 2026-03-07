@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=YAFC
+Name[tr]=YAFC
+Comment=Yet Another Fan Control for HP Victus 16
+Comment[tr]=HP Victus 16 icin Yet Another Fan Control
+Exec=konsole -e sudo yafc-tui
+Icon=/opt/yafc/icon.png
+Terminal=false
+Type=Application
+Categories=System;HardwareSettings;

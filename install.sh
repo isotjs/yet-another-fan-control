@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — HP Fan Curve installer
+# install.sh — YAFC installer
 # Installs daemon, config, and systemd service for HP Victus 16
 
 set -e
@@ -27,31 +27,34 @@ die()     { error "$*"; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-SRC_DAEMON="${SCRIPT_DIR}/src/hp-fan-curve.py"
-SRC_SERVICE="${SCRIPT_DIR}/config/hp-fan-curve.service"
+SRC_DAEMON="${SCRIPT_DIR}/src/yafc-daemon.py"
+SRC_SERVICE="${SCRIPT_DIR}/config/yafc.service"
 SRC_CONF="${SCRIPT_DIR}/config/fan-curve.conf"
-SRC_TUI="${SCRIPT_DIR}/src/hp-fan-tui.py"
+SRC_TUI="${SCRIPT_DIR}/src/yafc-tui.py"
 SRC_TRANSLATIONS="${SCRIPT_DIR}/src/translations.py"
 SRC_ICON="${SCRIPT_DIR}/config/icon.png"
-SRC_DESKTOP="${SCRIPT_DIR}/config/hp-fan-curve.desktop"
+SRC_DESKTOP="${SCRIPT_DIR}/config/yafc.desktop"
 
-DST_DAEMON="/usr/local/bin/hp-fan-curve"
-DST_SERVICE="/etc/systemd/system/hp-fan-curve.service"
-DST_CONF_DIR="/etc/hp-fan-curve"
+DST_DAEMON="/usr/local/bin/yafc-daemon"
+DST_SERVICE="/etc/systemd/system/yafc.service"
+DST_CONF_DIR="/etc/yafc"
 DST_CONF="${DST_CONF_DIR}/fan-curve.conf"
-OPT_DIR="/opt/hp-fan-curve"
-DST_TUI_PY="${OPT_DIR}/hp-fan-tui.py"
+OPT_DIR="/opt/yafc"
+DST_TUI_PY="${OPT_DIR}/yafc-tui.py"
 DST_TRANSLATIONS="${OPT_DIR}/translations.py"
 DST_ICON="${OPT_DIR}/icon.png"
-DST_TUI_BIN="/usr/local/bin/hp-fan-tui"
-DST_DESKTOP="/usr/share/applications/hp-fan-curve.desktop"
+DST_TUI_BIN="/usr/local/bin/yafc-tui"
+DST_DESKTOP="/usr/share/applications/yafc.desktop"
 
-SERVICE_NAME="hp-fan-curve"
+SERVICE_NAME="yafc"
+LEGACY_SERVICE_NAME="hp-fan-curve"
+LEGACY_SERVICE="/etc/systemd/system/hp-fan-curve.service"
+LEGACY_CONF="/etc/hp-fan-curve/fan-curve.conf"
 
 # ── Preflight checks ──────────────────────────────────────────────────────────
 
 echo ""
-echo "${BLD}HP Fan Curve — Installer${RST}"
+echo "${BLD}Yet Another Fan Control (YAFC) — Installer${RST}"
 echo "──────────────────────────────────────"
 echo ""
 
@@ -97,7 +100,7 @@ echo ""
 # ── python-textual ─────────────────────────────────────────────────────────────
 
 if ! python3 -c "import textual" &>/dev/null; then
-    warn "python-textual is not installed. It is required for the TUI (hp-fan-tui.py)."
+    warn "python-textual is not installed. It is required for the TUI (yafc-tui.py)."
     read -rp "${YLW}Install python-textual now via pacman? [y/N]${RST} " _ans
     if [[ "${_ans,,}" == "y" ]]; then
         pacman -S --noconfirm python-textual
@@ -112,6 +115,24 @@ fi
 echo ""
 
 # ── Install files ─────────────────────────────────────────────────────────────
+
+if systemctl is-active --quiet "${LEGACY_SERVICE_NAME}" 2>/dev/null; then
+    info "Stopping legacy service ${LEGACY_SERVICE_NAME}..."
+    systemctl stop "${LEGACY_SERVICE_NAME}"
+    ok "Legacy service stopped"
+fi
+
+if systemctl is-enabled --quiet "${LEGACY_SERVICE_NAME}" 2>/dev/null; then
+    info "Disabling legacy service ${LEGACY_SERVICE_NAME}..."
+    systemctl disable "${LEGACY_SERVICE_NAME}"
+    ok "Legacy service disabled"
+fi
+
+if [[ -f "${LEGACY_SERVICE}" ]]; then
+    info "Removing legacy unit file → ${LEGACY_SERVICE}"
+    rm -f "${LEGACY_SERVICE}"
+    ok "Legacy unit file removed"
+fi
 
 info "Installing daemon → ${DST_DAEMON}"
 cp "${SRC_DAEMON}" "${DST_DAEMON}"
@@ -135,7 +156,7 @@ ok "Icon installed"
 info "Installing TUI wrapper → ${DST_TUI_BIN}"
 cat > "${DST_TUI_BIN}" <<'EOF'
 #!/usr/bin/env bash
-exec python3 /opt/hp-fan-curve/hp-fan-tui.py "$@"
+exec python3 /opt/yafc/yafc-tui.py "$@"
 EOF
 chmod +x "${DST_TUI_BIN}"
 ok "TUI wrapper installed"
@@ -152,9 +173,15 @@ if [[ -f "${DST_CONF}" ]]; then
         info "Keeping existing config"
     fi
 else
-    info "Installing config → ${DST_CONF}"
-    cp "${SRC_CONF}" "${DST_CONF}"
-    ok "Config installed"
+    if [[ -f "${LEGACY_CONF}" ]]; then
+        info "Migrating legacy config → ${DST_CONF}"
+        cp "${LEGACY_CONF}" "${DST_CONF}"
+        ok "Legacy config migrated"
+    else
+        info "Installing config → ${DST_CONF}"
+        cp "${SRC_CONF}" "${DST_CONF}"
+        ok "Config installed"
+    fi
 fi
 
 echo ""
@@ -213,7 +240,7 @@ echo "  Config:   ${DST_CONF}"
 echo "  Service:  ${DST_SERVICE}"
 [[ -f "${DST_DESKTOP}" ]] && echo "  Desktop:  ${DST_DESKTOP}"
 echo ""
-echo "  Launch TUI:   sudo hp-fan-tui"
+echo "  Launch TUI:   sudo yafc-tui"
 echo "  Live logs:    journalctl -u ${SERVICE_NAME} -f"
 echo "  Reload conf:  sudo systemctl kill -s HUP ${SERVICE_NAME}"
 echo ""

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-hp-fan-curve — Automatic temperature-based fan curve daemon
+yafc-daemon — Automatic temperature-based fan control daemon
 Optimized for HP Victus 16 (Ryzen 7 7840HS + RTX 4050).
 
 Modes:
   max    — fixed 5800 RPM
-  auto   — use curve from fan-curve.conf
-  manual — same as auto, curve is edited via TUI
+  auto   — use built-in default curve
+  gaming — use built-in aggressive gaming curve
+  manual — use user curve from fan-curve.conf
 """
 
 import glob
@@ -23,22 +24,38 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)],
 )
-log = logging.getLogger("hp-fan-curve")
+log = logging.getLogger("yafc")
 
-CONF_PATH = Path("/etc/hp-fan-curve/fan-curve.conf")
+CONF_PATH = Path("/etc/yafc/fan-curve.conf")
 CONF_FALLBACK = Path(__file__).parent.parent / "config" / "fan-curve.conf"
 
 RPM_MAX = 5800
 
-# Default curve — used when no conf file is found
+# Default quiet curve — used in AUTO mode and as fallback
 DEFAULT_CURVE = [
     {"temp": 90, "rpm": 5800},
-    {"temp": 84, "rpm": 4930},
-    {"temp": 78, "rpm": 4060},
-    {"temp": 70, "rpm": 3500},
-    {"temp": 55, "rpm": 2320},
-    {"temp": 45, "rpm": 1740},
+    {"temp": 84, "rpm": 5000},
+    {"temp": 78, "rpm": 4200},
+    {"temp": 72, "rpm": 3600},
+    {"temp": 65, "rpm": 3000},
+    {"temp": 58, "rpm": 2500},
+    {"temp": 50, "rpm": 2000},
+    {"temp": 42, "rpm": 1650},
     {"temp": 35, "rpm": 1450},
+    {"temp":  0, "rpm": 1450},
+]
+
+GAMING_CURVE = [
+    {"temp": 90, "rpm": 5800},
+    {"temp": 85, "rpm": 5600},
+    {"temp": 80, "rpm": 5200},
+    {"temp": 75, "rpm": 4700},
+    {"temp": 70, "rpm": 4200},
+    {"temp": 65, "rpm": 3700},
+    {"temp": 60, "rpm": 3200},
+    {"temp": 55, "rpm": 2800},
+    {"temp": 45, "rpm": 2100},
+    {"temp": 35, "rpm": 1600},
     {"temp":  0, "rpm": 1450},
 ]
 
@@ -72,9 +89,23 @@ def load_config() -> dict:
     return {"mode": "auto", "curve": DEFAULT_CURVE}
 
 
-def config_to_fan_curve(config: dict) -> list[tuple[int, int, int]]:
-    """Converts a config dict to a list of (threshold, fan1_rpm, fan2_rpm) tuples."""
-    curve = config.get("curve", DEFAULT_CURVE)
+def get_manual_curve(config: dict) -> list[dict]:
+    curve = config.get("curve")
+    if isinstance(curve, list) and curve:
+        return curve
+    return list(DEFAULT_CURVE)
+
+
+def get_effective_curve(mode: str, config: dict) -> list[dict]:
+    if mode == "manual":
+        return get_manual_curve(config)
+    if mode == "gaming":
+        return list(GAMING_CURVE)
+    return list(DEFAULT_CURVE)
+
+
+def curve_to_fan_curve(curve: list[dict]) -> list[tuple[int, int, int]]:
+    """Converts fan curve entries to (threshold, fan1_rpm, fan2_rpm) tuples."""
     return [(entry["temp"], entry["rpm"], entry["rpm"]) for entry in curve]
 
 
@@ -181,7 +212,7 @@ def main():
 
     signal.signal(signal.SIGHUP, _handle_sighup)
 
-    log.info("hp-fan-curve starting...")
+    log.info("yafc daemon starting...")
 
     hwmon = find_hwmon_path()
     if not hwmon:
@@ -224,7 +255,8 @@ def main():
             log.info("Config reloaded, level reset.")
 
         mode = _config.get("mode", "auto")
-        fan_curve = config_to_fan_curve(_config)
+        curve = get_effective_curve(mode, _config)
+        fan_curve = curve_to_fan_curve(curve)
 
         try:
             cpu_temp = read_temp(cpu_temp_path)
@@ -251,7 +283,7 @@ def main():
                     current_level = 0
 
             else:
-                # AUTO or MANUAL mode: follow the curve
+                # AUTO, GAMING, or MANUAL mode: follow the selected curve
                 if current_level == -1:
                     current_level = get_target_level(temp, fan_curve)
                     f1, f2 = fan_curve[current_level][1], fan_curve[current_level][2]
