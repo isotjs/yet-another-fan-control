@@ -9,6 +9,8 @@ Type=simple
 ExecStart=/usr/bin/python3 /usr/local/bin/yafc-daemon
 Restart=on-failure
 RestartSec=5
+# Publishes applied fan state for the TUI at /run/yafc/state.json
+RuntimeDirectory=yafc
 # stdout goes to journald: journalctl -u yafc -f
 StandardOutput=journal
 StandardError=journal

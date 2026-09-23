@@ -27,6 +27,7 @@ This project was developed and tested **only on a single machine**: HP Victus 16
 The author provides **no warranty of any kind**. By using this software you accept full responsibility for any consequences, including but not limited to: hardware damage, thermal issues, system instability, or data loss.
 
 Before using on your own machine:
+
 - Verify that your system has the `hp-wmi` kernel module
 - Check that your hwmon sysfs paths match what this daemon expects
 - Monitor temperatures closely during initial use
@@ -44,6 +45,8 @@ Before using on your own machine:
 - **MAX / AUTO / GAMING / MANUAL** mode support
 - Configurable via `fan-curve.conf`; daemon reloads on SIGHUP — no restart required
 - Textual TUI with live sensor monitoring, mode switching, fan curve editing, and log viewer
+- TUI reads the level the daemon actually applied from `/run/yafc/state.json` (hysteresis included),
+  and falls back to a computed target when the daemon is not running
 - English and Turkish UI (`--lang en|tr`)
 - KDE/Plasma `.desktop` entry installed automatically when KDE is detected
 
@@ -52,22 +55,23 @@ Before using on your own machine:
 ## TUI Preview
 
 ```
-┌─ YAFC ───────────────────────────────────────────────────────┐
-│  [1:MAX] [2:AUTO ●] [3:MANUAL] [4:GAMING]  ● Service: active │
-│                               [Start] [Stop] [Restart]       │
-├───────────────────────┬──────────────────────────────────────┤
-│  TEMPERATURES         │  FAN CURVE                           │
-│  CPU:   74.1°C        │  ○  90°C → 5800 RPM                  │
-│  iGPU:  61.0°C        │  ○  84°C → 5000 RPM                  │
-│  dGPU:  66.0°C        │  ●  65°C → 3000 RPM  ← ACTIVE        │
-│                       │  ○  58°C → 2500 RPM                  │
-│  FANS                 │  ...                                 │
-│  Fan 1: 3500 RPM      │                                      │
-│  Fan 2: 3500 RPM      │                                      │
-├───────────────────────┴──────────────────────────────────────┤
-│  LOG  (journalctl -u yafc)                                   │
-│  16:04:17 [AUTO][CPU] CPU: 74.1°C | iGPU: 61.0°C | ...       │
-└──────────────────────────────────────────────────────────────┘
+┌─ YAFC ──────────────────────── Victus 16 · Ryzen 7 7840HS + RTX 4050 ── 19:42:07 ─┐
+│  MAX  [AUTO]  MANUAL  GAMING                        [Start] [Stop] [Restart]        │
+├────────────────────────────────┬───────────────────────────────────────────────────┤
+│ THERMALS                       │ FAN CURVE · AUTO (built-in)                        │
+│                                │            Temp    RPM                             │
+│  ● CPU    46.0°C  ███▍░░░░░░░  │  ●   90°C   5800  ████████████████████████████     │
+│  ● iGPU   42.0°C  ███░░░░░░░░  │  ●   84°C   5000  ████████████████████████         │
+│  ● dGPU   42.0°C  ███░░░░░░░░  │  ●   78°C   4200  ████████████████████             │
+│  ────────────────────────────  │  ●   72°C   3600  █████████████████                │
+│  ● Fan 1  1650 RPM ██▍░░░░░░   │  ▶   65°C   3000  ██████████████   ← active level  │
+│  ● Fan 2  1650 RPM ██▍░░░░░░   │  ●   58°C   2500  ████████████                     │
+│                                │  ●    0°C   1450  ██████                           │
+│                                │                        read-only — press 3 to edit  │
+├────────────────────────────────┴───────────────────────────────────────────────────┤
+│ AUTO · CPU 46.0°C → L8 · 1650 RPM (target)                ● Service: active        │
+│ q Quit  r Refresh  c Copy  l Log panel  n Add  d Delete  ? Help                    │
+└────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -75,9 +79,11 @@ Before using on your own machine:
 ## Requirements
 
 **Hardware:**
+
 - HP Victus 16 (or another HP laptop with the `hp-wmi` kernel module and sysfs fan control)
 
 **Software:**
+
 - Linux with systemd
 - Python 3.10+
 - `python-textual` (for the TUI)
@@ -102,6 +108,7 @@ sudo bash install.sh
 ```
 
 The installer will:
+
 - Copy the daemon to `/usr/local/bin/yafc-daemon`
 - Copy TUI files to `/opt/yafc/`
 - Create the `yafc-tui` command at `/usr/local/bin/yafc-tui`
@@ -136,16 +143,16 @@ Config file: `/etc/yafc/fan-curve.conf`
 {
   "mode": "auto",
   "curve": [
-    {"temp": 90, "rpm": 5800},
-    {"temp":  0, "rpm": 1450}
+    { "temp": 90, "rpm": 5800 },
+    { "temp": 0, "rpm": 1450 }
   ]
 }
 ```
 
-| Field | Values | Description |
-|-------|--------|-------------|
-| `mode` | `"max"` \| `"auto"` \| `"gaming"` \| `"manual"` | Active fan control mode |
-| `curve` | array of `{temp, rpm}` objects | Fan curve levels used in **MANUAL** mode, sorted descending by temperature |
+| Field   | Values                                          | Description                                                                |
+| ------- | ----------------------------------------------- | -------------------------------------------------------------------------- |
+| `mode`  | `"max"` \| `"auto"` \| `"gaming"` \| `"manual"` | Active fan control mode                                                    |
+| `curve` | array of `{temp, rpm}` objects                  | Fan curve levels used in **MANUAL** mode, sorted descending by temperature |
 
 The daemon reloads the config on SIGHUP — no restart required:
 
@@ -160,17 +167,17 @@ sudo systemctl kill -s HUP yafc
 Default quiet curve (AUTO mode):
 
 | Level | Threshold (°C) | Fan RPM |
-|-------|----------------|---------|
-| 10 | ≥ 90 | 5800 |
-| 9 | ≥ 84 | 5000 |
-| 8 | ≥ 78 | 4200 |
-| 7 | ≥ 72 | 3600 |
-| 6 | ≥ 65 | 3000 |
-| 5 | ≥ 58 | 2500 |
-| 4 | ≥ 50 | 2000 |
-| 3 | ≥ 42 | 1650 |
-| 2 | ≥ 35 | 1450 |
-| 1 | ≥  0 | 1450 |
+| ----- | -------------- | ------- |
+| 10    | ≥ 90           | 5800    |
+| 9     | ≥ 84           | 5000    |
+| 8     | ≥ 78           | 4200    |
+| 7     | ≥ 72           | 3600    |
+| 6     | ≥ 65           | 3000    |
+| 5     | ≥ 58           | 2500    |
+| 4     | ≥ 50           | 2000    |
+| 3     | ≥ 42           | 1650    |
+| 2     | ≥ 35           | 1450    |
+| 1     | ≥ 0            | 1450    |
 
 Thresholds and RPM values can be edited via `fan-curve.conf` or through the TUI in MANUAL mode.
 These user-defined values are applied only in MANUAL mode.
@@ -179,29 +186,35 @@ These user-defined values are applied only in MANUAL mode.
 
 ## Modes
 
-| Mode | Behavior |
-|------|----------|
-| **MAX** | Fixed maximum RPM (5800) regardless of temperature |
-| **AUTO** | Uses the built-in default curve |
-| **GAMING** | Uses the built-in aggressive gaming curve |
+| Mode       | Behavior                                                             |
+| ---------- | -------------------------------------------------------------------- |
+| **MAX**    | Fixed maximum RPM (5800) regardless of temperature                   |
+| **AUTO**   | Uses the built-in default curve                                      |
+| **GAMING** | Uses the built-in aggressive gaming curve                            |
 | **MANUAL** | Uses the user-defined curve from `fan-curve.conf` (editable via TUI) |
 
 ---
 
 ## TUI Key Bindings
 
-| Key | Action |
-|-----|--------|
-| `1` | Switch to MAX mode |
-| `2` | Switch to AUTO mode |
-| `3` | Switch to MANUAL mode |
-| `4` | Switch to GAMING mode |
-| `r` | Refresh sensors and config |
-| `c` | Copy current status to clipboard |
-| `n` | Add a new fan curve level (MANUAL mode only) |
-| `d` | Delete selected fan curve level (MANUAL mode only, minimum 2 levels) |
-| `Enter` (table row) | Edit selected level (MANUAL mode only) |
-| `q` | Quit |
+| Key                 | Action                                                               |
+| ------------------- | -------------------------------------------------------------------- |
+| `1`                 | Switch to MAX mode                                                   |
+| `2`                 | Switch to AUTO mode                                                  |
+| `3`                 | Switch to MANUAL mode                                                |
+| `4`                 | Switch to GAMING mode                                                |
+| `r`                 | Refresh sensors and config                                           |
+| `c`                 | Copy current status to clipboard                                     |
+| `n`                 | Add a new fan curve level (MANUAL mode only)                         |
+| `d`                 | Delete selected fan curve level (MANUAL mode only, minimum 2 levels) |
+| `l`                 | Toggle the log panel                                                 |
+| `?`                 | Show all key bindings                                                |
+| `Enter` (table row) | Edit selected level (MANUAL mode only)                               |
+| `q`                 | Quit                                                                 |
+
+Mode switching is also available with the arrow keys on the mode tabs.
+Curve editing and service control require root (`sudo yafc-tui`); without it the TUI runs
+in read-only mode and says so in the status bar.
 
 ---
 
@@ -229,12 +242,12 @@ Tested on HP Victus 16 (Ryzen 7 7840HS + RTX 4050) running CachyOS.
 
 Sensors are discovered dynamically by reading the hwmon `name` file — hwmon indices can change between reboots without issue.
 
-| Sensor | hwmon name | Method |
-|--------|------------|--------|
-| CPU (Tctl) | `k10temp` (fallback: `acpitz`) | sysfs `temp1_input` |
-| iGPU | `amdgpu` | sysfs `temp1_input` |
-| dGPU (RTX 4050) | — | `nvidia-smi` |
-| Fan control | `hp` (hp-wmi) | sysfs `fan1_target`, `fan2_target` |
+| Sensor          | hwmon name                     | Method                             |
+| --------------- | ------------------------------ | ---------------------------------- |
+| CPU (Tctl)      | `k10temp` (fallback: `acpitz`) | sysfs `temp1_input`                |
+| iGPU            | `amdgpu`                       | sysfs `temp1_input`                |
+| dGPU (RTX 4050) | —                              | `nvidia-smi`                       |
+| Fan control     | `hp` (hp-wmi)                  | sysfs `fan1_target`, `fan2_target` |
 
 Reports and testing from other HP Victus / hp-wmi users are welcome.
 

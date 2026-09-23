@@ -12,6 +12,7 @@ Modes:
 
 import glob
 import json
+import os
 import signal
 import subprocess
 import time
@@ -28,6 +29,8 @@ log = logging.getLogger("yafc")
 
 CONF_PATH = Path("/etc/yafc/fan-curve.conf")
 CONF_FALLBACK = Path(__file__).parent.parent / "config" / "fan-curve.conf"
+STATE_DIR = Path("/run/yafc")
+STATE_PATH = STATE_DIR / "state.json"
 
 RPM_MAX = 5800
 
@@ -60,7 +63,7 @@ GAMING_CURVE = [
 ]
 
 # Minimum cooldown required before stepping down a level (°C)
-HYSTERESIS_C = 5
+HYSTERESIS_C = 10
 POLL_INTERVAL = 3
 HWMON_BASE = "/sys/devices/platform/hp-wmi/hwmon"
 
@@ -155,7 +158,23 @@ def set_manual_mode(hwmon: Path) -> bool:
     if not enable_path.exists():
         log.error(f"pwm1_enable not found: {enable_path}")
         return False
-    return write_sysfs(enable_path, 0)
+    return write_sysfs(enable_path, 1)
+
+
+def ensure_manual_mode(hwmon: Path) -> bool:
+    """Re-applies manual mode if the firmware or another tool reset it.
+
+    Returns True when a reset was detected and manual mode re-asserted.
+    """
+    enable_path = hwmon / "pwm1_enable"
+    try:
+        if enable_path.read_text().strip() == "1":
+            return False
+    except OSError as e:
+        log.warning(f"pwm1_enable read error: {e}")
+    log.warning("Fan mode reset detected — re-asserting manual mode.")
+    set_manual_mode(hwmon)
+    return True
 
 
 def set_fan_speed(hwmon: Path, fan1_rpm: int, fan2_rpm: int) -> None:
@@ -165,6 +184,25 @@ def set_fan_speed(hwmon: Path, fan1_rpm: int, fan2_rpm: int) -> None:
             write_sysfs(path, rpm)
         else:
             log.warning(f"{fname} not found, skipping.")
+
+
+def write_state(level: int, rpm: int, mode: str, dominant: str, temp: float) -> None:
+    """Publishes the applied fan state for the TUI. Best-effort, never fatal."""
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "level": level,
+            "rpm": rpm,
+            "mode": mode,
+            "dominant": dominant,
+            "temp": round(temp, 1),
+            "ts": time.time(),
+        }
+        tmp = STATE_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload))
+        os.replace(tmp, STATE_PATH)
+    except OSError as e:
+        log.warning(f"State write error: {e}")
 
 
 def get_target_level(temp: float, fan_curve: list) -> int:
@@ -239,7 +277,7 @@ def main():
     if not set_manual_mode(hwmon):
         log.error("Failed to set manual mode.")
         sys.exit(1)
-    log.info("Fan mode: Manual (pwm1_enable=0)")
+    log.info("Fan mode: Manual (pwm1_enable=1)")
 
     _config = load_config()
     current_level = -1
@@ -253,6 +291,10 @@ def main():
             _config = load_config()
             current_level = -1  # Reset level, recalculate with new curve
             log.info("Config reloaded, level reset.")
+
+        # Firmware or external tools may reset fan mode; recover control
+        if ensure_manual_mode(hwmon):
+            current_level = -1
 
         mode = _config.get("mode", "auto")
         curve = get_effective_curve(mode, _config)
@@ -281,6 +323,7 @@ def main():
                     )
                     set_fan_speed(hwmon, RPM_MAX, RPM_MAX)
                     current_level = 0
+                rpm = RPM_MAX
 
             else:
                 # AUTO, GAMING, or MANUAL mode: follow the selected curve
@@ -293,10 +336,12 @@ def main():
                         f" → Level {current_level + 1}: Fan1: {f1} RPM | Fan2: {f2} RPM"
                     )
                     set_fan_speed(hwmon, f1, f2)
+                    rpm = f1
                 else:
                     f1, f2, new_level = get_target_rpm_with_hysteresis(
                         temp, current_level, fan_curve
                     )
+                    rpm = f1
                     if new_level != current_level:
                         direction = "↑" if new_level < current_level else "↓"
                         log.info(
@@ -307,6 +352,8 @@ def main():
                         )
                         set_fan_speed(hwmon, f1, f2)
                         current_level = new_level
+
+            write_state(current_level, rpm, mode, dominant, temp)
 
         except Exception as e:
             log.warning(f"Loop error: {e}")
